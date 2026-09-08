@@ -7,7 +7,7 @@ scipy==1.15.2
 uproot
 matplotlib==3.10.1
 seaborn
-scikit-learn==1.8.0
+scikit-learn
 xgboost==3.2.0
 pyhf==0.7.6
 tqdm
