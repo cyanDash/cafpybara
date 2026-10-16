@@ -25,8 +25,10 @@ BNB_FILE = DF_DIR + "/bnb/hnl_mupi_bnb_savepfp.df"
 TARGET_POT = 1.0e20
 
 # PDS light-yield detvars (CV, 0.94xLY, 1.19xLY, PMTSPEDecrease), run_number
-# 400-500 subset (~10k files each, ~7.3e18 POT), from cafpyana hnl_mcnu_detvar;
-# detvars.h5 built by process_detvars --analysis hnl_mupi -s preprocess.
+# 400-500 and 501-600 subsets (~10k files each per sample, ~1.45e19 POT per
+# group), from cafpyana hnl_mcnu_detvar. Each subset is built by
+# process_detvars --analysis hnl_mupi -s preprocess, then the two stores are
+# combined by merge_detvar_stores.py (file_idx 0 = run 400-500, 1 = 501-600).
 DETVAR_DIR = DF_DIR + "/detvar"
 DETVAR_DICT_FILES = [DETVAR_DIR + "/detvars.h5"]
 
