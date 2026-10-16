@@ -34,13 +34,17 @@ from ...core.preprocess import (
 )
 
 __all__ = [
-    'TRACK_SCORE', 'SLICE_LEVELS', 'pfp_col', 'track_like', 'collapse_pfp',
+    'TRACK_SCORE', 'SLICE_LEVELS', 'PFP_LEVEL', 'pfp_col', 'track_like', 'collapse_pfp',
     'fix_bfm_flashtime_mcbnb', 'fix_bfm_flashtime_mchnl',
     'preprocess_mcbnb', 'preprocess_mchnl',
 ]
 
 TRACK_SCORE = 0.51            # same track-like threshold as makedf (make_hnldf)
 SLICE_LEVELS = [0, 1, 2]      # (__ntuple, entry, rec.slc..index)
+# The PFP level (rec.slc.reco.pfp..index) is dropped by position, not as the
+# last level: detvar frames carry an extra trailing ``file_idx`` level
+# (core/detvar/store.py).
+PFP_LEVEL = 3
 _FT = ('slc', 'barycenterFM', 'flashTime', '', '', '')
 
 
@@ -56,11 +60,16 @@ def track_like(df: pd.DataFrame) -> pd.Series:
             & (df.pfp.trk.start.x != -999) & (df.pfp.trk.end.x != -999))
 
 
+def _slice_index(idx: pd.MultiIndex) -> pd.MultiIndex:
+    """PFP-level index -> slice-level index (drops ``PFP_LEVEL``)."""
+    return idx.droplevel(PFP_LEVEL)
+
+
 def _rank_group(trk: pd.DataFrame, name: str) -> pd.DataFrame:
     """Rename the ``pfp`` columns of a one-row-per-slice track frame to ``name``."""
     out = trk['pfp'].copy()
     out.columns = pd.MultiIndex.from_tuples([(name,) + c for c in out.columns])
-    out.index = trk.index.droplevel(-1)
+    out.index = _slice_index(trk.index)
     return out
 
 
@@ -84,15 +93,16 @@ def collapse_pfp(df: pd.DataFrame) -> pd.DataFrame:
         return df
     trk = df[track_like(df)]
     srt = trk.sort_values(pfp_col('pfp.trk.len'), ascending=False, kind='stable')
-    slc_of = srt.index.droplevel(-1)
+    slc_of = _slice_index(srt.index)
     first = ~slc_of.duplicated()
     rest = srt[~first]
     long1 = _rank_group(srt[first], 'long1')
-    long2 = _rank_group(rest[~rest.index.droplevel(-1).duplicated()], 'long2')
+    long2 = _rank_group(rest[~_slice_index(rest.index).duplicated()], 'long2')
 
-    slc = df.drop(columns='pfp', level=0).groupby(level=SLICE_LEVELS).head(1)
-    slc.index = slc.index.droplevel(-1)
-    n_trk = trk.groupby(level=SLICE_LEVELS).size().reindex(slc.index).fillna(0)
+    slc_levels = [i for i in range(df.index.nlevels) if i != PFP_LEVEL]
+    slc = df.drop(columns='pfp', level=0).groupby(level=slc_levels).head(1)
+    slc.index = _slice_index(slc.index)
+    n_trk = trk.groupby(level=slc_levels).size().reindex(slc.index).fillna(0)
     out = pd.concat([slc, long1.reindex(slc.index), long2.reindex(slc.index)], axis=1)
     out[('n_trk', '', '', '', '', '')] = n_trk.to_numpy()
     for g in ('long1', 'long2'):

@@ -1,20 +1,17 @@
-"""TEMPLATE -- your analysis's own detector-variation wiring for
-core/detvar/process_detvars.py.
+"""HNL mu-pi -- per-analysis wiring for core/detvar/process_detvars.py.
+
+The raw ``detvar_<name>_<idx>.df`` frames come from cafpyana's
+``hnl_mcnu_detvar`` config (``rec`` savepfp + ``hdr`` + ``nulite``), so the
+same :func:`~.preprocess.preprocess_mcbnb` PFP->slice collapse as the nominal
+BNB frame applies.
 """
 
-# TODO: table key for the slice-level df in raw detvar_*.df files (see
-# hnlpi0/nuecc detvar.py).
-SLC_KEY = "TODO_SET_ME"
+from . import preprocess
 
+SLC_KEY = "rec"
 
-def DEFAULT_PREPROCESS_FN(df):
-    """TODO: replace with your real MC preprocess function."""
-    raise NotImplementedError(
-        "TEMPLATE: set DEFAULT_PREPROCESS_FN in detvar.py to your real MC "
-        "preprocess function (e.g. preprocess.preprocess_mc)."
-    )
+DEFAULT_PREPROCESS_FN = preprocess.preprocess_mcbnb
 
-
-# TODO: selection-type name -> (cuts, stage). Leave empty if the
-# always-available "preprocess" (no-selection) store is all you need for now.
+# Preprocess-only store for now; the real cut list is applied later via
+# get_total_cov(..., cuts=...).
 SELECTION_FN_MAP = {}
