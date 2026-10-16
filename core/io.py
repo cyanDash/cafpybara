@@ -14,10 +14,73 @@ import gc
 import numpy as np
 import pandas as pd
 
-__all__ = ['get_n_split', 'print_keys', 'load_dfs', 'load_mc', 'load_data',
+__all__ = ['xrootd_url', 'ensure_token', 'open_store', 'get_n_split', 'print_keys', 'load_dfs', 'load_mc', 'load_data',
            'correct_cosmic_weight_mevprtl_df', 'load_mevprtl']
 
 _UNSET = object()
+
+def xrootd_url(path):
+    """``root://`` URL of a dCache file given by a ``/pnfs/sbnd/...`` path or a symlink into it
+    (e.g. ``~/persistent/...``; resolved without needing ``/pnfs`` to be mounted)."""
+    import os
+    real = os.path.realpath(path)
+    if not real.startswith('/pnfs/sbnd/'):
+        raise ValueError(f"{path} does not resolve to /pnfs/sbnd/... ({real})")
+    return 'root://fndcadoor.fnal.gov:1094//pnfs/fnal.gov/usr/sbnd/' + real[len('/pnfs/sbnd/'):]
+
+
+def ensure_token(min_hours: float = 1.0, path=None):
+    """Make sure ``BEARER_TOKEN_FILE`` holds an SBND token valid for ``min_hours``; else ask for one.
+
+    Runs ``htgettoken -a htvaultprod.fnal.gov -i sbnd`` and prints its output as it
+    comes, including the verification link to open in a browser; blocks until
+    it is approved. The token stays in the token file, nothing else is stored.
+    """
+    import base64, json, os, subprocess, time
+    path = path or os.environ.get('BEARER_TOKEN_FILE') or f'/tmp/bt_u{os.getuid()}'
+    os.environ['BEARER_TOKEN_FILE'] = path
+
+    def hours_left():
+        try:
+            body = open(path).read().strip().split('.')[1]
+            return (json.loads(base64.urlsafe_b64decode(body + '=' * (-len(body) % 4)))['exp'] - time.time()) / 3600
+        except Exception:
+            return -1.0
+
+    if hours_left() >= min_hours:
+        print(f"token ok: {hours_left():.1f} h left ({path})")
+        return path
+    print(f"no valid token at {path}: requesting one; open the link below")
+    import shlex, shutil, sys
+    cmd = ['htgettoken', '-a', 'htvaultprod.fnal.gov', '-i', 'sbnd', '-o', path]
+    if not sys.stdin.isatty() and shutil.which('script'):
+        # htgettoken skips the web login ("running in the background") without a terminal
+        cmd = ['script', '-qfc', shlex.join(cmd), '/dev/null']
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True)
+    for line in proc.stdout:
+        print(line, end='', flush=True)
+    if proc.wait() != 0 or hours_left() < min_hours:
+        raise RuntimeError("htgettoken failed")
+    print(f"token ok: {hours_left():.1f} h left")
+    return path
+
+
+def open_store(file, mode='r'):
+    """``pd.HDFStore`` for a local path, or for an xrootd URL (``root://...``).
+
+    A URL is streamed with fsspec into memory (``H5FD_CORE`` image, nothing is
+    written to disk), so frames in dCache can be read where ``/pnfs`` is not
+    mounted (e.g. JupyterHub). Needs an SBND bearer token (``BEARER_TOKEN_FILE``)
+    and the whole file fits in memory.
+    """
+    if not str(file).startswith('root://'):
+        return pd.HDFStore(file, mode=mode)
+    import fsspec
+    with fsspec.open(file, 'rb') as f:
+        image = f.read()
+    return pd.HDFStore(file.rsplit('/', 1)[-1], mode='r', driver='H5FD_CORE',
+                       driver_core_image=image, driver_core_backing_store=0)
+
 
 def get_n_split(file):
     """Get the number of splits in an HDF5 file.
@@ -32,9 +95,8 @@ def get_n_split(file):
     int
         Number of splits in the file.
     """
-    this_split_df = pd.read_hdf(file, key="split")
-    this_n_split = this_split_df.n_split.iloc[0]
-    return this_n_split
+    with open_store(file) as store:
+        return store['split'].n_split.iloc[0]
 
 def print_keys(file):
     """Print all keys available in an HDF5 file.
@@ -44,7 +106,7 @@ def print_keys(file):
     file : str
         Path to HDF5 file.
     """
-    with pd.HDFStore(file, mode='r') as store:
+    with open_store(file) as store:
         keys = store.keys()
         print("Keys:", keys)
 
@@ -68,7 +130,7 @@ def load_dfs(file, keys2load, n_max_concat=10, start_split=0):
         Dictionary mapping key names to concatenated DataFrames.
     """
     out_df_dict = {}
-    with pd.HDFStore(file, mode='r') as store:
+    with open_store(file) as store:
         this_n_keys = store['split'].n_split.iloc[0] - start_split
         n_concat = min(n_max_concat, this_n_keys)
         for key in keys2load:
