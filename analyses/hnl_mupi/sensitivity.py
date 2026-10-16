@@ -177,13 +177,21 @@ def upper_limit_mu(sig: dict, bkg: dict, cl: float = 0.95, mc_stat: bool = True,
     """Expected CLs upper limit on mu, ``{'median', 'minus1', 'plus1'}``.
 
     ``sig`` and ``bkg`` are pyhf-input dicts at the same POT. With ``mc_stat``
-    the ``err_key`` errors (MC stat plus systematics by default; falling back
-    to ``stat_err``) enter as per-bin modifiers; ``mc_stat=False`` is data
-    statistics only. The signal is
-    rescaled internally so the limit lies near mu = 1, inside pyhf's default
+    the ``err_key`` errors (MC stat plus systematics by default) enter as
+    per-bin modifiers; a dict without ``err_key`` raises ``KeyError`` (no
+    fallback to ``stat_err``, which would count data statistics twice);
+    ``mc_stat=False`` is data statistics only and ignores ``err_key``. The
+    signal is rescaled internally so the limit lies near mu = 1, inside pyhf's default
     normfactor bounds [0, 10].
     """
-    err = lambda d: np.asarray(d.get(err_key, d["stat_err"]), float)
+    def err(d):
+        if not mc_stat:                                 # errors unused by _model
+            return np.zeros(len(d["counts"]))
+        if err_key not in d:
+            raise KeyError(f"pyhf-input dict has no {err_key!r} (keys: {sorted(d)}); "
+                           "pass an err_key it has")
+        return np.asarray(d[err_key], float)
+
     s, b = np.asarray(sig["counts"], float), np.asarray(bkg["counts"], float)
     var_b = b + (err(bkg) ** 2 if mc_stat else 0)
     k = 1.96 * np.sqrt(var_b.sum()) / s.sum()          # rough limit, one-bin guess
