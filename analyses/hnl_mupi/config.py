@@ -19,8 +19,10 @@ BNB_FILE = DF_DIR + "/bnb/hnl_mupi_bnb_savepfp.df"
 # BNB plots are scaled to this POT.
 TARGET_POT = 1.0e20
 
-# TODO: no detvar samples for this topology yet.
-DETVAR_DIR = "TODO_SET_ME/replace_with_your_detvar_directory"
+# PDS light-yield detvars (CV, 0.94xLY, 1.19xLY, PMTSPEDecrease), run_number
+# 400-500 subset (~10k files each, ~7.3e18 POT), from cafpyana hnl_mcnu_detvar;
+# detvars.h5 built by process_detvars --analysis hnl_mupi -s preprocess.
+DETVAR_DIR = DF_DIR + "/detvar"
 DETVAR_DICT_FILES = [DETVAR_DIR + "/detvars.h5"]
 
 # No in-time-cosmic sample for this topology yet.
