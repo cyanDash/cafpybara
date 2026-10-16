@@ -21,12 +21,20 @@ def _hnl_signal(df):
     return df[df.signal == signal_dict["hnl"]]
 
 
+def _hnl_weights(df):
+    """``weights_mc`` if the frame has it (HNL rate weights), else ones."""
+    return df["weights_mc"].to_numpy(float).ravel() if "weights_mc" in df.columns else np.ones(len(df))
+
+
 def cutflow(frames: dict, cuts, bkg: str = "bnb", weights: dict | None = None) -> pd.DataFrame:
     """Slices left after each cut.
 
     For ``bkg``: weighted count per background category and in total. For every
     other sample: the number of HNL-matched slices and the efficiency relative
-    to the first row (the cafpyana preselection).
+    to the first row (the cafpyana preselection). When the HNL frame has
+    ``weights_mc`` (see :func:`~cafpybara.analyses.hnl_mupi.io.load_mchnl`), also
+    the expected HNL-matched slices, ``sum(weights_mc) * weights[k]`` (pass
+    ``weights[k] = target_pot / hnl_pot``), and the rate-weighted efficiency.
     """
     weights = weights or {}
     stages = {k: {"preselection": df, **select(df, cuts=cuts, savedict=True, check_preprocessed=False)}
@@ -45,10 +53,14 @@ def cutflow(frames: dict, cuts, bkg: str = "bnb", weights: dict | None = None) -
                     row[entry["label"]] = (df.signal == entry["value"]).sum() * w
                 row[f"{k} total"] = len(df) * w
             else:
-                n = len(_hnl_signal(df))
-                n0 = len(_hnl_signal(st["preselection"]))
+                sig, sig0 = _hnl_signal(df), _hnl_signal(st["preselection"])
+                n, n0 = len(sig), len(sig0)
                 row[f"{k} sig. slices"] = n
                 row[f"{k} eff."] = n / n0 if n0 else np.nan
+                if "weights_mc" in df.columns:
+                    w, w0 = _hnl_weights(sig).sum(), _hnl_weights(sig0).sum()
+                    row[f"{k} exp. slices"] = w * weights.get(k, 1.0)
+                    row[f"{k} eff. (wtd)"] = w / w0 if w0 else np.nan
         rows.append(row)
     return pd.DataFrame(rows).set_index("cut")
 
@@ -59,6 +71,7 @@ def scan_cut(frames: dict, getter, thresholds, op: str = ">", bkg: str = "bnb") 
     ``op`` is ``'>'``, ``'>='``, ``'<'`` or ``'window'`` (threshold = ``(lo, hi)``,
     keeps ``lo <= v < hi``). Columns: HNL efficiency per signal sample, and the
     kept fraction of the ``bkg`` sample's cosmics, nu in FV and nu outside FV.
+    The HNL efficiency is rate-weighted when the frame has ``weights_mc``.
     Non-finite values and the -999/-9999 sentinels never pass.
     """
     def keep(df, t):
@@ -78,7 +91,9 @@ def scan_cut(frames: dict, getter, thresholds, op: str = ">", bkg: str = "bnb") 
         row = {"thr": t}
         for k, df in frames.items():
             if k != bkg:
-                row[f"eff {k}"] = keep(_hnl_signal(df), t).mean()
+                hs = _hnl_signal(df)
+                w = _hnl_weights(hs)
+                row[f"eff {k}"] = (keep(hs, t) * w).sum() / w.sum() if w.sum() else np.nan
         kb = keep(b, t)
         row["kept cosmic"] = kb[sig == signal_dict["cosmic"]].mean()
         row["kept nu in FV"] = kb[np.isin(sig, _NU_BKG)].mean()

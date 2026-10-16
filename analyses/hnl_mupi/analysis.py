@@ -11,7 +11,8 @@ from ...core.classes import CutSpec
 
 __all__ = [
     'signal_categories', 'signal_dict', 'background_categories', 'hnl_categories',
-    'DEFAULT_CUTS', 'in_fv', 'define_signal', 'define_signal_hnl',
+    'FLASH_TIME_WINDOW', 'DEFAULT_CUTS', 'in_fv', 'define_signal', 'define_signal_hnl',
+    'HNL_DISPLAY_SCALE', 'hnl_label',
 ]
 
 
@@ -39,6 +40,18 @@ signal_dict = {k: v["value"] for k, v in signal_categories.items()}
 background_categories = {k: v for k, v in signal_categories.items()
                          if k not in ("hnl", "hnlcosmic", "offbeam")}
 hnl_categories = {"hnl": signal_categories["hnl"]}
+
+# Factor the HNL rate is multiplied by on plots, per mass in MeV. The rate goes
+# as |U_mu4|^4 (production and decay), so the legend's |U|^2 is the simulated
+# value times sqrt(scale).
+HNL_DISPLAY_SCALE = {300: 1, 365: 1}
+
+
+def hnl_label(mass, simU, scale=1.0):
+    """Legend label for an HNL line drawn at ``scale`` times the simulated rate."""
+    from ...core.utils import sci_notation
+    return (f"{mass} MeV HNL " + r"$\mu\pi$" + "\n"
+            + r"|U$_{\mu 4}$|$^2$ = " + str(sci_notation(simU * np.sqrt(scale), 2, 2)))
 
 
 # ---------------------------------------------------------------------------
@@ -84,9 +97,18 @@ def define_signal_hnl(indf: pd.DataFrame) -> pd.DataFrame:
 # Cut sequence (applied after the cafpyana preselection)
 # ---------------------------------------------------------------------------
 
+# Beam window on the calibrated BCFM flash time [ns], the hnlpi0 window with the
+# upper edge raised from 2250 to 3500 ns. HNLs from kaons decaying at rest are
+# slow (m365: E = 0.37 GeV, beta ~ 0.17) and arrive up to ~3.6 us; 2250 ns would
+# drop 2.1% (weighted) of the m365 signal, 3500 ns drops 0.003%.
+FLASH_TIME_WINDOW = (-250.0, 3500.0)
+
 DEFAULT_CUTS = [
     CutSpec("bcfm_score", variable=("slc", "barycenterFM", "score"), min=0.05,
             label="BCFM score > 0.05"),
+    CutSpec("flash_time", variable=("slc", "barycenterFM", "flashTime_calib"),
+            min=FLASH_TIME_WINDOW[0], max=FLASH_TIME_WINDOW[1],
+            label=f"BCFM flash time in ({FLASH_TIME_WINDOW[0]:g}, {FLASH_TIME_WINDOW[1]:g}) ns"),
     CutSpec("crlongtrkdiry", variable=("slc", "nuid", "crlongtrkdiry"), min=-0.5,
             label="CR long-track dir y > -0.5"),
 ]

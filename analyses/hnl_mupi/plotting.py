@@ -70,14 +70,17 @@ def plot_mc_hnl(mc_df, hnl_df, var, bins, scale_nu=1.0, scale_hnl=1.0, hnl_label
     the HNL-matched slices. Rows where ``var`` is non-finite or a -999/-9999
     sentinel are dropped from both. ``scale_nu`` scales the BNB stack (POT
     weight), ``scale_hnl`` the HNL line; ``scale_hnl="area"`` scales it to the
-    stack's in-range total. Other
+    stack's in-range total. The HNL histogram is weighted by ``weights_mc``
+    when the frame has it (the MeVPrtl rate weights from ``load_mchnl``), so
+    ``scale_hnl = target_pot / hnl_pot`` draws the expected rate at the
+    simulated mixing; multiply by a display factor to enlarge it. Other
     keywords go to :func:`plot_var` for the stack (``xlabel``, ``counts``,
     ``overflow``, ``cut_val``, ``legend_kwargs``, ...).
 
     ``show_fom=True`` adds a Punzi figure-of-merit strip,
     ``eff_S / (a/2 + sqrt(B))`` with ``a = fom_nsigma``, for "keep > x" and
-    "keep < x" at each bin edge. ``eff_S`` is the HNL efficiency, so the
-    curve does not depend on ``scale_hnl``.
+    "keep < x" at each bin edge. ``eff_S`` is the (rate-weighted) HNL
+    efficiency, so the curve does not depend on ``scale_hnl``.
 
     Returns ``(fig, ax, mc_dict, hnl_counts)``, or
     ``(fig, ax, ax_fom, mc_dict, hnl_counts)`` with ``show_fom``.
@@ -105,12 +108,16 @@ def plot_mc_hnl(mc_df, hnl_df, var, bins, scale_nu=1.0, scale_hnl=1.0, hnl_label
         coll.set_edgecolor('black')
         coll.set_linewidth(0.4)
 
-    h_raw = get_hist1d(data=hnl_df[var], bins=bins, overflow=overflow)
-    if isinstance(scale_hnl, str) and scale_hnl == "area":
+    w_hnl = hnl_df['weights_mc'].to_numpy(float).ravel() if 'weights_mc' in hnl_df.columns else None
+    h_raw = get_hist1d(data=hnl_df[var], bins=bins, weights=w_hnl, overflow=overflow)
+    area = isinstance(scale_hnl, str) and scale_hnl == "area"
+    if area:
         scale_hnl = mc_steps[-1][1:].sum() / h_raw.sum() if h_raw.sum() else 1.0
     h = h_raw * scale_hnl
-    # Raw slice count: the scaled sum is meaningless when scale_hnl area-normalises.
-    label = hnl_label + (f" (N={int(h_raw.sum()):,})" if kwargs.get('counts') else "")
+    # Area-normalised: the raw slice count (the scaled sum is meaningless).
+    # Otherwise the drawn sum, like the stack's category counts.
+    n_label = f"N={len(hnl_df):,}" if area else f"{h.sum():,.1f}"
+    label = hnl_label + (f" ({n_label})" if kwargs.get('counts') else "")
     ax.stairs(h, bins, color=hnl_categories["hnl"]["color"], lw=2, label=label, zorder=1e3)
 
     # Legend outside the axes, to the right, so it never covers the histograms.
@@ -125,7 +132,7 @@ def plot_mc_hnl(mc_df, hnl_df, var, bins, scale_nu=1.0, scale_hnl=1.0, hnl_label
 
     if show_fom:
         b = mc_steps[-1][1:]
-        n_s = max(h_raw.sum(), 1)
+        n_s = h_raw.sum() if h_raw.sum() > 0 else 1.0
         a = fom_nsigma
         edges = np.asarray(bins)[:-1]
         with np.errstate(invalid='ignore', divide='ignore'):

@@ -5,7 +5,7 @@ Usage::
     import cafpybara.analyses.hnl_mupi as ana
 
     bnb, pot, ngen = ana.load_mc(config.BNB_FILE)                     # BNB nu + cosmics
-    hnl, _, _      = ana.load_mchnl(config.HNL_FILES[300])            # MeVPrtl HNL
+    hnl, pot, info = ana.load_mchnl(config.HNL_FILES[300])            # MeVPrtl HNL; info = {simU, hnlM}
     ana.cutflow({"bnb": bnb, "m300": hnl}, ana.DEFAULT_CUTS, weights={"bnb": w})
 
 The input frames are cafpyana ``*_savepfp`` frames (one row per PFParticle);
@@ -35,3 +35,4 @@ from .selection import *
 from .io import *
 from .plotting import *
 from .funcs import *
+from .sensitivity import *

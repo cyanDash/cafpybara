@@ -4,6 +4,12 @@ Do NOT define your own `get_total_cov` here. `core.funcs.get_total_cov` is
 the single implementation for every analysis -- this file's only job
 is `systs_input()`, a factory that fully resolves every default into
 a concrete value before anything reaches `core`.
+
+hnl_mupi: deliberately still the template. With no detvar, in-time-cosmic
+or multisim-weight samples yet, the pyhf inputs carry MC-stat errors
+directly (``sensitivity.pyhf_input_dict``: ``mcstat_err``, ``total_err``).
+This changes once proper systematics exist: fill this in and take
+``total_err`` from ``get_total_cov``, as hnlpi0 does.
 """
 
 from ...core.classes import SystematicsInput
