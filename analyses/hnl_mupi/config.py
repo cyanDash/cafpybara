@@ -14,6 +14,11 @@ HNL_FILES = {
     300: DF_DIR + "/hnl_m300/hnl_mupi_m300_savepfp.df",
     365: DF_DIR + "/hnl_m365/hnl_mupi_m365_savepfp.df",
 }
+HNL_FILES_NOOVERLAY = HNL_FILES
+# CORSIKA-overlaid HNL (sbndcode v10_22_00, hnl_mcmevprtl_savepfp); m365 pilot = 100 files x 10 events.
+HNL_FILES_OVERLAY = {
+    365: DF_DIR + "/hnl_m365_overlay/hnl_mupi_m365_overlay_savepfp.df",
+}
 BNB_FILE = DF_DIR + "/bnb/hnl_mupi_bnb_savepfp.df"
 
 # BNB plots are scaled to this POT.
