@@ -1,4 +1,4 @@
-"""Statistics-only expected sensitivity to |U_mu4|^2 for HNL -> mu pi.
+"""Expected sensitivity to |U_mu4|^2 for HNL -> mu pi.
 
 Two stages, so the fit inputs are files like hnlpi0's:
 
@@ -13,13 +13,21 @@ Two stages, so the fit inputs are files like hnlpi0's:
    (pyhf, asymptotics, background-only Asimov data), and |U|^2 = U * sqrt(mu).
 
 Error keys: ``stat_err`` is sqrt(counts), hnlpi0's convention (data-like
-Poisson); ``mcstat_err`` is the MC statistical error, scale * sqrt(sum w^2);
-``total_err`` is ``mcstat_err`` until systematics are added. ``var=None`` gives
-one bin holding every slice (counting experiment).
+Poisson); ``mcstat_err`` is the MC statistical error, scale * sqrt(sum w^2).
+With ``systs=`` (a :func:`~.funcs.systs_input`), :func:`pyhf_input_dict` also
+runs :func:`~cafpybara.core.funcs.get_total_cov` and adds ``syst_cov`` (counts^2),
+``syst_err`` and one ``<category>_err`` per source category (``DetVar_err``,
+``BeamExposure_err``, ``NTargets_err``); ``total_err`` is
+sqrt(mcstat_err^2 + syst_err^2), else ``mcstat_err``. ``var=None`` gives one
+bin holding every slice (counting experiment).
 
-Caveats: no systematics; no off-beam / in-time cosmic sample; the HNL samples
-have no cosmic overlay yet; BNB MC statistics (not data statistics) dominate
-the background error when the MC POT is below the target POT.
+:func:`upper_limit_mu` puts ``total_err`` in per-bin ``staterror`` /
+``shapesys`` modifiers, so bin-to-bin correlations in ``syst_cov`` are dropped
+(exact for one bin).
+
+Caveats: no multisim (flux/xsec/G4) or cosmic systematics; no off-beam /
+in-time cosmic sample; the HNL samples have no cosmic overlay yet; the detvar
+sample is ~7e18 POT.
 """
 from __future__ import annotations
 
@@ -30,9 +38,11 @@ import numpy as np
 import pandas as pd
 import pyhf
 
+from ...core.funcs import get_total_cov
+from ...core.physics import integrated_flux
 from ...core.pyhf_helpers import make_model_stats_only
 
-__all__ = ['hist_with_err', 'pyhf_input_dict', 'save_pyhf_inputs', 'load_pyhf_inputs',
+__all__ = ['hist_with_err', 'syst_errors', 'pyhf_input_dict', 'save_pyhf_inputs', 'load_pyhf_inputs',
            'upper_limit_mu', 'u2_limit', 'sensitivity_table']
 
 pyhf.set_backend("numpy")
@@ -57,18 +67,60 @@ def hist_with_err(df: pd.DataFrame, var=None, bins=None, scale: float = 1.0, wei
     return {"bins": np.asarray(bins, float), "counts": scale * counts, "stat_err": scale * np.sqrt(sumw2)}
 
 
+# get_total_cov needs a real column; for var=None any always-filled column in
+# the bins [0, 1] works, since get_hist1d folds under/overflow into the edge bins.
+_ONE_BIN_VAR = ('slc', 'vertex', 'x', '', '', '')
+
+
+def syst_errors(df: pd.DataFrame, systs, var=None, bins=None, scale: float = 1.0) -> dict:
+    """Systematic errors in scaled counts from ``get_total_cov(df, **systs.to_kwargs())``.
+
+    Returns ``{'syst_cov', 'syst_err', '<category>_err', ...}``. ``df`` needs
+    ``weights_mc``; ``systs.mcbnb_pot`` must be the POT of ``df`` (before
+    ``scale``).
+    """
+    expect = hist_with_err(df, var, bins, scale, weighted=True)["counts"]
+    if var is None:
+        var, bins = _ONE_BIN_VAR, np.array([0.0, 1.0])
+    out = get_total_cov(df, reco_var=var, bins=bins, **systs.to_kwargs())
+    to_counts = integrated_flux * (systs.mcbnb_pot / 1e6) * scale
+    cv = out.rate_hist_cv * to_counts
+    if not np.allclose(cv, expect, rtol=1e-6, atol=1e-9):
+        raise ValueError(
+            f"get_total_cov CV {cv} != histogram {expect}. Either systs.mcbnb_pot is not "
+            "the POT of df, or some rows of var are NaN or outside bins: get_total_cov "
+            "folds those into the edge bins, hist_with_err drops them. Select rows with "
+            "var inside bins first (the same cut must then go into systs' cuts).")
+    res = {"syst_cov": out.rate_cov * to_counts ** 2}
+    res["syst_err"] = np.sqrt(np.clip(np.diag(res["syst_cov"]), 0, None))
+    cats = {}
+    for key, cat in zip(out.rate_syst_df["key"], out.rate_syst_df["category"]):
+        entry = out.rate_syst_dict.get(key, out.rate_syst_dict.get(f"{cat}_{key}"))
+        if entry is not None:                           # Datastat is not in rate_syst_dict
+            cats[cat] = cats.get(cat, 0) + entry["cov"]
+    for cat, cov in cats.items():
+        res[f"{cat}_err"] = np.sqrt(np.clip(np.diag(cov), 0, None)) * to_counts
+    return res
+
+
 def pyhf_input_dict(df: pd.DataFrame, pot: float, var=None, bins=None, scale: float = 1.0,
-                    weighted: bool = False, m: float | None = None, U: float | None = None) -> dict:
+                    weighted: bool = False, m: float | None = None, U: float | None = None,
+                    systs=None) -> dict:
     """One sample's pyhf input in hnlpi0's schema (see module docstring).
 
     ``pot`` is the POT the counts are normalised to (``scale`` already applied).
     For an HNL sample pass ``weighted=True``, ``m`` [MeV] and ``U``, the |U|^2
     the scaled counts correspond to (``simU * sqrt(display scale)`` if
     ``scale`` includes a display factor, as hnlpi0's ``plotU``).
+    ``systs`` (a :func:`~.funcs.systs_input` built with ``df``'s own POT and
+    cuts) adds the systematic errors; see :func:`syst_errors`.
     """
     h = hist_with_err(df, var, bins, scale, weighted)
     out = {"bins": h["bins"], "counts": h["counts"], "POT": pot,
            "total_err": h["stat_err"], "stat_err": np.sqrt(h["counts"]), "mcstat_err": h["stat_err"]}
+    if systs is not None:
+        out.update(syst_errors(df, systs, var, bins, scale))
+        out["total_err"] = np.sqrt(h["stat_err"] ** 2 + out["syst_err"] ** 2)
     if m is not None:
         out["m"] = m
     if U is not None:
@@ -121,12 +173,13 @@ def _model(sig, bkg, mc_stat):
 
 
 def upper_limit_mu(sig: dict, bkg: dict, cl: float = 0.95, mc_stat: bool = True,
-                   err_key: str = "mcstat_err") -> dict:
+                   err_key: str = "total_err") -> dict:
     """Expected CLs upper limit on mu, ``{'median', 'minus1', 'plus1'}``.
 
     ``sig`` and ``bkg`` are pyhf-input dicts at the same POT. With ``mc_stat``
-    the ``err_key`` errors (falling back to ``stat_err``) enter as stat
-    modifiers; ``mc_stat=False`` is data statistics only. The signal is
+    the ``err_key`` errors (MC stat plus systematics by default; falling back
+    to ``stat_err``) enter as per-bin modifiers; ``mc_stat=False`` is data
+    statistics only. The signal is
     rescaled internally so the limit lies near mu = 1, inside pyhf's default
     normfactor bounds [0, 10].
     """
@@ -163,6 +216,7 @@ def sensitivity_table(inputs: dict, cl: float = 0.95, mc_stat=(True, False)) -> 
             lim = upper_limit_mu(sig, bkg, cl=cl, mc_stat=mc)
             rows.append({"mass [MeV]": sig.get("m", key), "mc_stat": mc, "S": s, "B": b,
                          "B MC err": np.sqrt(np.sum(np.square(bkg["mcstat_err"]))),
+                         "B syst err": np.sqrt(np.sum(np.square(bkg.get("syst_err", 0.0)))),
                          "S/sqrt(B)": s / np.sqrt(b),
                          "mu95 (-1s)": lim["minus1"], "mu95": lim["median"], "mu95 (+1s)": lim["plus1"],
                          "|U|^2 (-1s)": u2_limit(sig["U"], lim["minus1"]),

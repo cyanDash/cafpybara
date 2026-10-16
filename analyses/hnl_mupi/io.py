@@ -30,6 +30,7 @@ from .preprocess import preprocess_mcbnb, preprocess_mchnl
 __all__ = ['load_mc', 'load_mchnl', 'load_data']
 
 REC_KEY = "rec"
+WEIGHT_COL = ("weights_mc", "", "", "", "", "")
 MEVPRTL_KEY = "mevprtl"
 
 
@@ -68,8 +69,15 @@ def _load(file, preprocess_fn, define_signal_fn, cuts, max_events, **kwargs):
 
 def load_mc(file: str, cuts=None, max_events: int | None = None,
             preprocess_fn=preprocess_mcbnb, define_signal_fn=define_signal, **kwargs):
-    """Load a BNB nu + cosmics ``*_savepfp`` frame. See :func:`cafpybara.core.io.load_mc`."""
-    return _load(file, preprocess_fn, define_signal_fn, cuts, max_events, **kwargs)
+    """Load a BNB nu + cosmics ``*_savepfp`` frame. See :func:`cafpybara.core.io.load_mc`.
+
+    Adds ``weights_mc`` = 1 (no ``_wgt`` frames yet), which
+    :func:`~cafpybara.core.funcs.get_total_cov` needs; hnlpi0 sets the same
+    column in its notebook.
+    """
+    df, pot, ngen = _load(file, preprocess_fn, define_signal_fn, cuts, max_events, **kwargs)
+    df[WEIGHT_COL] = 1.0
+    return df, pot, ngen
 
 
 def load_mchnl(file: str, cuts=None, max_events: int | None = None,
