@@ -11,7 +11,7 @@ from ...core.classes import CutSpec
 
 __all__ = [
     'signal_categories', 'signal_dict', 'background_categories', 'hnl_categories',
-    'FLASH_TIME_WINDOW', 'DEFAULT_CUTS', 'in_fv', 'define_signal', 'define_signal_hnl',
+    'FLASH_TIME_WINDOW', 'DEFAULT_CUTS', 'TRACK_CUTS', 'ALL_CUTS', 'OPEN_ANGLE_MAX', 'track_cuts', 'in_fv', 'define_signal', 'define_signal_hnl',
     'HNL_DISPLAY_SCALE', 'hnl_label',
 ]
 
@@ -112,3 +112,34 @@ DEFAULT_CUTS = [
     CutSpec("crlongtrkdiry", variable=("slc", "nuid", "crlongtrkdiry"), min=-0.5,
             label="CR long-track dir y > -0.5"),
 ]
+
+
+# Track cuts, in the analysis order, applied after DEFAULT_CUTS. They cut on the
+# per-slice PFP counts of ``preprocess.pfp_counts`` (thresholds: ``preprocess.PFP_CUTS``,
+# saved with the interval below in ``thresholds.txt``; see ``thresholds`` and ``tuning``).
+# Not yet implemented: the muon/pion separation and the exactly-one-pion veto.
+OPEN_ANGLE_MAX = 150.0   # [deg]
+
+
+def track_cuts(open_angle_max: float = OPEN_ANGLE_MAX) -> list:
+    """The track cuts, with the MIP-pair opening-angle interval ``(0, open_angle_max)``."""
+    return [
+        CutSpec("trk_quality", accessor=lambda df: df.n_good, min=1.5,
+                label="n good tracks >= 2 (nu daughter, score, len, vtx dist)"),
+        CutSpec("mip", accessor=lambda df: df.n_mip, min=1.5,
+                label="n MIP tracks >= 2 (len, chi2 mu/p)"),
+        CutSpec("no_shower", accessor=lambda df: df.n_shw, max=0.5,
+                label="no primary shower"),
+        CutSpec("open_angle", accessor=lambda df: df.mip_open_angle, max=open_angle_max,
+                label=f"MIP-pair opening angle < {open_angle_max:g} deg"),
+        CutSpec("contained", accessor=lambda df: df.n_uncontained, max=0.5,
+                label="all good tracks contained, none in high y-z"),
+        CutSpec("no_cathode", accessor=lambda df: df.n_cathode, max=0.5,
+                label="no cathode-crossing track"),
+        CutSpec("no_michel", accessor=lambda df: df.n_michel, max=0.5,
+                label="no Michel-like PFP"),
+    ]
+
+
+TRACK_CUTS = track_cuts()
+ALL_CUTS = DEFAULT_CUTS + TRACK_CUTS

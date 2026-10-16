@@ -1,0 +1,14 @@
+# Track-cut thresholds of the HNL mu-pi selection.
+# Initial values from the analysis definition, not yet tuned (see tuning.py).
+trk_score = 0.5   # trk_quality: track-like: trackScore >
+min_len = 3   # trk_quality: good track length > [cm]
+max_dist_vtx = 10   # trk_quality: good track start-to-vertex distance < [cm]
+mip_min_len = 10   # mip: MIP track length > [cm]
+mip_chi2mu_max = 20   # mip: MIP track chi2_mu (per point, plane 2) <
+mip_chi2p_min = 85   # mip: MIP track chi2_p (per point, plane 2) >
+shw_score = 0.5   # no_shower: primary shower: 0 < trackScore <
+shw_min_energy = 0.055   # no_shower: primary shower energy > [GeV]
+open_angle_max = 150   # open_angle: MIP-pair opening angle < [deg]
+contain_margin = 5   # contained: track ends at least this far inside the TPC [cm]
+michel_score = 0.6   # no_michel: Michel-like: 0 < trackScore <
+michel_max_energy = 0.045   # no_michel: Michel-like visible energy < [GeV]

@@ -36,3 +36,5 @@ from .io import *
 from .plotting import *
 from .funcs import *
 from .sensitivity import *
+from .thresholds import *
+from .tuning import *
