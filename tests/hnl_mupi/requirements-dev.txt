@@ -1,0 +1,3 @@
+# dev tools for tests/ and the pre-commit hooks
+pytest
+pre-commit

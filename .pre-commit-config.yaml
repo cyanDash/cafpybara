@@ -1,0 +1,37 @@
+# Local guardrails for the HNL mu-pi analysis only (analyses/hnl_mupi, tests/hnl_mupi).
+# Install once:  env/bin/python -m pre_commit install   (needs `pip install pre-commit pytest`)
+# Run by hand:   env/bin/python -m pre_commit run --all-files
+default_language_version:
+  python: python3
+files: ^(analyses/hnl_mupi/|tests/hnl_mupi/|\.pre-commit-config\.yaml$)
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff                       # real errors only: syntax, undefined names, bad comparisons
+        args: [--select, "E9,F63,F7,F82"]
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets             # tokens, keys and passwords in staged changes
+
+  - repo: local
+    hooks:
+      - id: nb-no-outputs              # the nbstripout git filter is local config; this covers clones without it
+        name: staged notebooks have no outputs
+        language: system
+        entry: env/bin/python tests/hnl_mupi/check_nb_outputs.py
+        files: \.ipynb$
+      - id: nb-valid
+        name: notebooks are valid nbformat
+        language: system
+        entry: env/bin/python -c "import sys, nbformat; [nbformat.validate(nbformat.read(f, 4)) for f in sys.argv[1:]]"
+        files: \.ipynb$
+      - id: pytest-hnl-mupi
+        name: pytest tests/hnl_mupi
+        language: system
+        entry: env/bin/python -m pytest tests/hnl_mupi -q -p no:cacheprovider -W ignore
+        pass_filenames: false
+        always_run: false
