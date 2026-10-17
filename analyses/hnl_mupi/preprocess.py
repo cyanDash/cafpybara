@@ -33,7 +33,8 @@ import pandas as pd
 
 from ...core import timing_calibration as tc
 from ...core.preprocess import (
-    preprocess_mc, fix_timing_calibration, _skip_if_applied, _mark_applied,
+    preprocess_mc, preprocess_data, fix_timing_calibration, fix_databnb_timing_calibration,
+    _skip_if_applied, _mark_applied,
 )
 
 __all__ = [
@@ -41,6 +42,7 @@ __all__ = [
     'pfp_features', 'pfp_counts', 'pfp_selection', 'collapse_pfp',
     'fix_bfm_flashtime_mcbnb', 'fix_bfm_flashtime_mchnl',
     'preprocess_mcbnb', 'preprocess_mchnl', 'preprocess_mcbnb_pfp', 'preprocess_mchnl_pfp',
+    'preprocess_databnb', 'preprocess_dataoff',
 ]
 
 TRACK_SCORE = 0.51            # same track-like threshold as makedf (make_hnldf)
@@ -309,3 +311,21 @@ def preprocess_mchnl_pfp(df: pd.DataFrame) -> pd.DataFrame:
     """As :func:`preprocess_mchnl` but keeping one row per PFP (no collapse), for threshold tuning."""
     df = fix_bfm_flashtime_mchnl(preprocess_mc(df))
     return fix_timing_calibration(df, period=tc.mchnl_period_calib, t0_offset=tc.mchnl_offset_calib)
+
+
+def preprocess_databnb(df: pd.DataFrame, thresholds: dict | None = None) -> pd.DataFrame:
+    """On-beam data: collapse to slices, then the per-run-period timing calibration.
+
+    :func:`~cafpybara.core.preprocess.fix_databnb_timing_calibration` drops slices
+    without RWM timing and the known-bad run periods (as hnlpi0 does). No generator
+    flash-time bugfix: that is MC only.
+    """
+    df = collapse_pfp(preprocess_data(df), thresholds)
+    return fix_databnb_timing_calibration(df)
+
+
+def preprocess_dataoff(df: pd.DataFrame, thresholds: dict | None = None) -> pd.DataFrame:
+    """Off-beam (+light) data: collapse to slices, then the off-beam timing calibration."""
+    df = collapse_pfp(preprocess_data(df), thresholds)
+    return fix_timing_calibration(df, period=tc.offbeam_period_calib, t0_offset=tc.offbeam_offset_calib,
+                                  ifData=True)

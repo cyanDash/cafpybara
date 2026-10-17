@@ -25,7 +25,7 @@ import pandas as pd
 from ...core.io import (load_mc as _core_load_mc, load_data as _core_load_data,
                         load_mevprtl as _core_load_mevprtl, load_dfs, get_n_split)
 from .analysis import define_signal, define_signal_hnl, signal_dict
-from .preprocess import preprocess_mcbnb, preprocess_mchnl
+from .preprocess import preprocess_mcbnb, preprocess_mchnl, preprocess_databnb, preprocess_dataoff
 
 __all__ = ['load_mc', 'load_mchnl', 'load_data']
 
@@ -101,6 +101,14 @@ def load_mchnl(file: str, cuts=None, max_events: int | None = None,
 
 
 def load_data(file: str, onbeam: bool = True, cuts=None, preprocess_fn=None, **kwargs):
-    """Load a data frame. TODO: no data or off-beam frames for this topology yet."""
+    """Load a data ``*_savepfp`` frame (``hnl_data_savepfp``): on-beam BNB or off-beam+light.
+
+    ``preprocess_fn`` defaults to :func:`~.preprocess.preprocess_databnb` (on-beam)
+    or :func:`~.preprocess.preprocess_dataoff`. Returns ``(df, pot, ngates)``: on-beam
+    POT and BNB gates, or (0, off-beam gates). Off-beam rows carry
+    ``signal = signal_dict['offbeam']``. See :func:`cafpybara.core.io.load_data`.
+    """
+    if preprocess_fn is None:
+        preprocess_fn = preprocess_databnb if onbeam else preprocess_dataoff
     return _core_load_data(file, rec_key=REC_KEY, preprocess_fn=preprocess_fn, onbeam=onbeam,
                            cuts=cuts, offbeam_signal_value=signal_dict["offbeam"], **kwargs)

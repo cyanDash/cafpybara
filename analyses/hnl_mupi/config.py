@@ -17,6 +17,13 @@ HNL_FILES = {
 }
 BNB_FILE = DF_DIR + "/bnb/hnl_mupi_bnb_savepfp.df"
 
+# Run 3 fixed-dev data (SBND2026A_Gen2, ~5e18 POT unblinded subset), hnl_data_savepfp:
+# on-beam BNB+light and off-beam+light flatcafs. Plain merge (no --fix-subrun).
+DATA_BNB_FILE = DF_DIR + "/data_run3/hnl_mupi_data_bnb_savepfp.df"
+DATA_OFFBEAM_FILE = DF_DIR + "/data_run3/hnl_mupi_data_offbeam_savepfp.df"
+# Fraction of off-beam gates that are not cosmic-only (beam-on cosmic fraction correction), as in hnlpi0/nuecc.
+OFFBEAM_F = 0.0725
+
 # BNB plots are scaled to this POT.
 TARGET_POT = 1.0e20
 

@@ -17,9 +17,13 @@ from matplotlib.gridspec import GridSpec
 from ...core import plotting as _core_plotting
 from ...core.physics import pdg_categories as _pdg_categories, mode_categories as _mode_categories
 from ...core.utils import get_hist1d
-from .analysis import background_categories, hnl_categories, signal_dict
+from .analysis import background_categories, hnl_categories, signal_categories, signal_dict
 
-__all__ = ['annotate_sbnd', 'plot_var', 'plot_mc_hnl', 'valid_rows', 'auto_bins']
+__all__ = ['annotate_sbnd', 'plot_var', 'plot_mc_hnl', 'plot_mc_hnl_data', 'valid_rows', 'auto_bins',
+           'stack_categories']
+
+# BNB categories plus the off-beam data that completes the cosmic prediction.
+stack_categories = {**background_categories, 'offbeam': signal_categories['offbeam']}
 
 annotate_sbnd = _core_plotting.annotate_sbnd
 
@@ -159,3 +163,76 @@ def plot_mc_hnl(mc_df, hnl_df, var, bins, scale_nu=1.0, scale_hnl=1.0, hnl_label
     if show_fom:
         return fig, ax, ax_fom, mc_dict, h
     return fig, ax, mc_dict, h
+
+
+def plot_mc_hnl_data(mc_df, hnl_df, data_df, var, bins, scale_nu=1.0, scale_hnl=1.0, hnl_label="HNL",
+                     log_y=False, figsize=(7, 6), ratio_range=(0.0, 2.0), savefig="", **kwargs):
+    """Prediction stack (BNB + off-beam) + data points + HNL step line, with a Data/Pred panel.
+
+    ``mc_df`` is the BNB slice frame concatenated with the off-beam data frame (``signal`` =
+    ``signal_dict['offbeam']``, ``weights_mc`` = the off-beam scale to the MC POT); ``scale_nu``
+    (data POT / BNB MC POT) scales the whole stack. ``hnl_df`` is the HNL-matched slices, drawn
+    weighted by ``weights_mc`` times ``scale_hnl`` as in :func:`plot_mc_hnl`; ``data_df`` is the
+    on-beam data. Rows where ``var`` is non-finite or a -999/-9999 sentinel are dropped from all
+    three. Other keywords go to :func:`plot_var` for the stack. The ratio uses the stack's
+    statistical error band; the annotation is the integrated Data/Pred with its statistical error.
+
+    Returns ``(fig, ax, ax_ratio, mc_dict, hnl_counts, data_counts)``.
+    """
+    fig = plt.figure(figsize=figsize)
+    gs = GridSpec(2, 1, height_ratios=[5, 1], hspace=0.05)
+    ax = fig.add_subplot(gs[0])
+    ax_r = fig.add_subplot(gs[1], sharex=ax)
+
+    kwargs.setdefault('categories', stack_categories)
+    kwargs = _inject_defaults(kwargs)
+    overflow = kwargs.get('overflow', True)
+    mc_df, hnl_df, data_df = valid_rows(mc_df, var), valid_rows(hnl_df, var), valid_rows(data_df, var)
+    n_before = len(ax.collections)
+    _, mc_steps, mc_err, mc_dict = _core_plotting.plot_var(mc_df, var, bins, ax=ax, scale=scale_nu, **kwargs)
+    cats = kwargs['categories']
+    for coll, entry in zip(ax.collections[n_before:], cats.values()):
+        coll.set_facecolor(entry['color'])
+        coll.set_edgecolor('black')
+        coll.set_linewidth(0.4)
+    mc_tot = mc_steps[-1][1:]
+
+    w_hnl = hnl_df['weights_mc'].to_numpy(float).ravel() if 'weights_mc' in hnl_df.columns else None
+    h = get_hist1d(data=hnl_df[var], bins=bins, weights=w_hnl, overflow=overflow) * scale_hnl
+    label = hnl_label + (f" ({h.sum():,.1f})" if kwargs.get('counts') else "")
+    ax.stairs(h, bins, color=hnl_categories["hnl"]["color"], lw=2, label=label, zorder=1e3)
+
+    d = get_hist1d(data=data_df[var], bins=bins, overflow=overflow)
+    centers, d_err = 0.5 * (np.asarray(bins)[1:] + np.asarray(bins)[:-1]), np.sqrt(d)
+    ax.errorbar(centers, d, yerr=d_err, fmt='o', color='black', ms=4, zorder=1e3 + 1,
+                label=f"Data ({int(d.sum()):,})" if kwargs.get('counts') else "Data")
+
+    legend_kwargs = {'ncol': 1, 'loc': 'upper left', 'bbox_to_anchor': (1.01, 1.0), 'frameon': False,
+                     **(kwargs.get('legend_kwargs') or {})}
+    handles, labels = ax.get_legend_handles_labels()
+    n_cat = len(cats)
+    data_i = labels.index(next(l for l in labels if l.startswith("Data")))
+    order = [data_i] + list(range(n_cat))[::-1] + [i for i in range(n_cat, len(handles)) if i != data_i]
+    ax.legend([handles[i] for i in order], [labels[i] for i in order], **legend_kwargs).set_zorder(1e3 + 2)
+    if log_y:
+        ax.set_yscale('log')
+
+    with np.errstate(invalid='ignore', divide='ignore'):
+        ratio, ratio_err, band = d / mc_tot, d_err / mc_tot, mc_err / mc_tot
+    ax_r.stairs(1 + band, bins, baseline=1 - band, fill=True, color='gray', alpha=0.4, lw=0)
+    ax_r.errorbar(centers, ratio, yerr=ratio_err, fmt='s', ms=3, color='black', zorder=1e3)
+    ax_r.axhline(1, color='red', ls='--', lw=1, zorder=0)
+    ax_r.set_ylim(*ratio_range)
+    ax_r.set_ylabel("Data/Pred")
+    ax_r.set_xlabel(ax.get_xlabel())
+    ax.set_xlabel('')
+    ax.tick_params(labelbottom=False)
+    tot_d, tot_mc = d.sum(), mc_tot.sum()
+    if tot_mc > 0:
+        ax.annotate(rf"$\Sigma$ Data/Pred = {tot_d / tot_mc:.2f} $\pm$ {np.sqrt(tot_d) / tot_mc:.2f} (stat.)",
+                    xy=(0.02, 0.98), xycoords='axes fraction', va='top', fontsize=9)
+    if savefig:
+        fig.savefig(savefig, bbox_inches='tight')
+    mc_dict['counts'] = mc_tot
+    mc_dict['total_err'] = mc_err
+    return fig, ax, ax_r, mc_dict, h, d
