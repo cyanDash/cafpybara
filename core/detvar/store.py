@@ -55,7 +55,7 @@ import warnings
 import numpy as np
 import pandas as pd
 from collections import namedtuple
-from ..io import load_dfs
+from ..io import load_dfs, open_store
 
 __all__ = ['DetVarFile', 'prepare_detvar_df', 'write_detvar_store', 'load_detvar_dict', 'detvar_store_info', 'apply_selection']
 
@@ -398,7 +398,8 @@ def load_detvar_dict(
     if preprocess_fn is not None:
         _preprocess_label = getattr(preprocess_fn, '__name__', repr(preprocess_fn))
 
-    meta = pd.read_hdf(h5file, 'meta')
+    with open_store(h5file) as _store:        # a root:// URL is streamed from dCache
+        meta = _store['meta']
 
     if groups is not None:
         missing = set(groups) - set(meta.index)
@@ -409,7 +410,7 @@ def load_detvar_dict(
     cv_cache: dict[str, pd.DataFrame] = {}
     out: dict = {}
 
-    with warnings.catch_warnings(), pd.HDFStore(h5file, mode='r') as store:
+    with warnings.catch_warnings(), open_store(h5file) as store:
         warnings.filterwarnings('ignore', '.*not a valid Python identifier.*')
         warnings.filterwarnings('ignore', category=pd.errors.PerformanceWarning)
         for group, row in meta.iterrows():

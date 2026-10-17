@@ -77,7 +77,10 @@ def open_store(file, mode='r'):
         return pd.HDFStore(file, mode=mode)
     import fsspec
     with fsspec.open(file, 'rb') as f:
-        image = f.read()
+        chunks = []                      # one f.read() of a multi-GB file stalls; read in pieces
+        while chunk := f.read(256 << 20):
+            chunks.append(chunk)
+    image = b''.join(chunks)
     return pd.HDFStore(file.rsplit('/', 1)[-1], mode='r', driver='H5FD_CORE',
                        driver_core_image=image, driver_core_backing_store=0)
 
