@@ -23,7 +23,8 @@ bin holding every slice (counting experiment).
 
 :func:`upper_limit_mu` puts ``total_err`` in per-bin ``staterror`` /
 ``shapesys`` modifiers, so bin-to-bin correlations in ``syst_cov`` are dropped
-(exact for one bin).
+(exact for one bin). With ``syst_cov`` present, :func:`upper_limit_mu` instead keeps the
+bin-to-bin correlations of the background (``full_cov``, see :func:`cov_modes`).
 
 Caveats: no multisim (flux/xsec/G4) or cosmic systematics; no off-beam /
 in-time cosmic sample; the HNL samples have no cosmic overlay yet; the detvar
@@ -33,6 +34,7 @@ from __future__ import annotations
 
 import os
 import pickle
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -42,7 +44,7 @@ from ...core.funcs import get_total_cov
 from ...core.physics import integrated_flux
 from ...core.pyhf_helpers import make_model_stats_only
 
-__all__ = ['hist_with_err', 'syst_errors', 'pyhf_input_dict', 'save_pyhf_inputs', 'load_pyhf_inputs',
+__all__ = ['cov_modes', 'hist_with_err', 'syst_errors', 'pyhf_input_dict', 'save_pyhf_inputs', 'load_pyhf_inputs',
            'upper_limit_mu', 'u2_limit', 'sensitivity_table']
 
 pyhf.set_backend("numpy")
@@ -161,7 +163,32 @@ def load_pyhf_inputs(in_dir: str, suffix: str, masses, data: bool = False) -> di
     return out
 
 
-def _model(sig, bkg, mc_stat):
+def cov_modes(cov, rel_tol: float = 1e-8) -> list:
+    """Eigen-decomposition ``cov = sum_k m_k m_k^T`` as the vectors ``m_k = sqrt(lambda_k) v_k``.
+
+    Modes with ``lambda_k <= rel_tol * lambda_max`` (and any negative eigenvalue from
+    numerical noise) are dropped.
+    """
+    lam, vec = np.linalg.eigh(np.asarray(cov, float))
+    keep = lam > rel_tol * max(lam.max(), 0.0)
+    return [np.sqrt(l) * v for l, v in zip(lam[keep], vec.T[keep])]
+
+
+def _model(sig, bkg, mc_stat, modes=()):
+    """pyhf model; ``modes`` are bkg covariance modes (:func:`cov_modes`), one Gaussian-constrained
+    ``histosys`` nuisance each (up/down = bkg +- mode, floored at 0 since the detvar samples populate bins
+    the nominal leaves empty), which keeps the bin-to-bin correlations."""
+    if modes:
+        b = np.asarray(bkg["counts"], float)
+        mods = [{"name": "bkg_stat", "type": "staterror", "data": list(bkg["stat_err"])}]
+        mods += [{"name": f"bkg_syst_{k}", "type": "histosys",
+                  "data": {"hi_data": list(np.clip(b + m, 0, None)), "lo_data": list(np.clip(b - m, 0, None))}} for k, m in enumerate(modes)]
+        model = pyhf.Model({"channels": [{"name": "singlechannel", "samples": [
+            {"name": "signal", "data": list(sig["counts"]),
+             "modifiers": [{"name": "mu", "type": "normfactor", "data": None},
+                           {"name": "signal_stat", "type": "shapesys", "data": list(sig["stat_err"])}]},
+            {"name": "background", "data": list(b), "modifiers": mods}]}]})
+        return model, list(b) + model.config.auxdata
     if mc_stat:
         return make_model_stats_only(sig, bkg)
     model = pyhf.Model({"channels": [{"name": "singlechannel", "samples": [
@@ -173,7 +200,7 @@ def _model(sig, bkg, mc_stat):
 
 
 def upper_limit_mu(sig: dict, bkg: dict, cl: float = 0.95, mc_stat: bool = True,
-                   err_key: str = "total_err") -> dict:
+                   err_key: str = "total_err", full_cov: bool = True, min_bkg: float = 1e-3) -> dict:
     """Expected CLs upper limit on mu, ``{'median', 'minus1', 'plus1'}``.
 
     ``sig`` and ``bkg`` are pyhf-input dicts at the same POT. With ``mc_stat``
@@ -183,21 +210,33 @@ def upper_limit_mu(sig: dict, bkg: dict, cl: float = 0.95, mc_stat: bool = True,
     ``mc_stat=False`` is data statistics only and ignores ``err_key``. The
     signal is rescaled internally so the limit lies near mu = 1, inside pyhf's default
     normfactor bounds [0, 10].
+
+    With ``full_cov`` (default) and a ``syst_cov`` in ``bkg``, the background systematics enter as
+    correlated :func:`cov_modes` nuisances and its ``staterror`` is ``mcstat_err``; ``err_key`` then
+    applies to the signal only. Without ``syst_cov`` (or ``full_cov=False``) the diagonal ``err_key``
+    is used for both, as before. Background bins below ``min_bkg`` times the total background are set to
+    that floor with a 100% error, since pyhf's ``staterror`` is relative and an empty bin has none.
     """
+    use_cov = mc_stat and full_cov and "syst_cov" in bkg
+    modes = cov_modes(bkg["syst_cov"]) if use_cov else ()
+
     def err(d):
         if not mc_stat:                                 # errors unused by _model
             return np.zeros(len(d["counts"]))
         if err_key not in d:
             raise KeyError(f"pyhf-input dict has no {err_key!r} (keys: {sorted(d)}); "
                            "pass an err_key it has")
-        return np.asarray(d[err_key], float)
+        return np.asarray(d["mcstat_err" if (use_cov and d is bkg) else err_key], float)
 
     s, b = np.asarray(sig["counts"], float), np.asarray(bkg["counts"], float)
-    var_b = b + (err(bkg) ** 2 if mc_stat else 0)
+    floor = max(min_bkg * b.sum(), 1e-9)
+    empty = b < floor
+    b = np.where(empty, floor, b)
+    var_b = b + (err(bkg) ** 2 + (np.sum(np.square(modes), axis=0) if use_cov else 0) if mc_stat else 0)
     k = 1.96 * np.sqrt(var_b.sum()) / s.sum()          # rough limit, one-bin guess
     for _ in range(4):
         scaled = {"counts": list(s * k), "stat_err": list(err(sig) * k)}
-        model, data = _model(scaled, {"counts": list(b), "stat_err": list(err(bkg))}, mc_stat)
+        model, data = _model(scaled, {"counts": list(b), "stat_err": list(np.where(empty, floor, err(bkg)))}, mc_stat, modes)
         _, exp = pyhf.infer.intervals.upper_limits.upper_limit(
             data, model, scan=None, level=1 - cl, test_stat="qtilde")
         exp = np.asarray(exp, float)                    # -2, -1, 0, +1, +2 sigma
@@ -213,7 +252,10 @@ def u2_limit(U: float, mu):
 
 
 def sensitivity_table(inputs: dict, cl: float = 0.95, mc_stat=(True, False)) -> pd.DataFrame:
-    """Expected limits for every HNL mass in ``inputs`` (from :func:`load_pyhf_inputs`)."""
+    """Expected limits for every HNL mass in ``inputs`` (from :func:`load_pyhf_inputs`).
+
+    A fit that does not converge (typically a handful of weighted MC events per bin) gives NaN and a warning.
+    """
     bkg = inputs["mcbnb"]
     rows = []
     for key, sig in inputs.items():
@@ -221,7 +263,12 @@ def sensitivity_table(inputs: dict, cl: float = 0.95, mc_stat=(True, False)) -> 
             continue
         s, b = np.sum(sig["counts"]), np.sum(bkg["counts"])
         for mc in mc_stat:
-            lim = upper_limit_mu(sig, bkg, cl=cl, mc_stat=mc)
+            try:
+                lim = upper_limit_mu(sig, bkg, cl=cl, mc_stat=mc)
+            except (pyhf.exceptions.FailedMinimization, RuntimeError) as err:
+                warnings.warn(f"m = {sig.get('m', key)} MeV, mc_stat={mc}: no limit ({err}); NaN in the table. "
+                              "Usually too few MC events per bin.")
+                lim = dict.fromkeys(("median", "minus1", "plus1"), np.nan)
             rows.append({"mass [MeV]": sig.get("m", key), "mc_stat": mc, "S": s, "B": b,
                          "B MC err": np.sqrt(np.sum(np.square(bkg["mcstat_err"]))),
                          "B syst err": np.sqrt(np.sum(np.square(bkg.get("syst_err", 0.0)))),
