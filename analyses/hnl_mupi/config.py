@@ -5,19 +5,15 @@ the HNL masses, ``hnl_mcnu_savepfp`` for BNB nu + CORSIKA cosmics), already
 cut by the cafpyana preselection (not a clear cosmic, nu_score > 0.5, vertex
 in the FV box).
 
-No cosmic overlay on the HNL samples yet; regenerate after the migration and
-only these paths change.
+The HNL samples carry the CORSIKA cosmic overlay (sbndcode v10_22_00,
+prodoverlay_corsika_MeVPrtl_hnl_mupi, ~2000 files x 10 events per mass);
+hdr.subrun is unique per input file (merge_dfs.py --fix-subrun).
 """
 
 DF_DIR = "/nashome/s/sdas1/persistent/hnl_mupi/dataframes"
 HNL_FILES = {
-    300: DF_DIR + "/hnl_m300/hnl_mupi_m300_savepfp.df",
-    365: DF_DIR + "/hnl_m365/hnl_mupi_m365_savepfp.df",
-}
-HNL_FILES_NOOVERLAY = HNL_FILES
-# CORSIKA-overlaid HNL (sbndcode v10_22_00, hnl_mcmevprtl_savepfp); m365 pilot = 100 files x 10 events.
-HNL_FILES_OVERLAY = {
-    365: DF_DIR + "/hnl_m365_overlay/hnl_mupi_m365_overlay_savepfp.df",
+    300: DF_DIR + "/hnl_m300_overlay_full/hnl_mupi_m300_overlay_savepfp.df",
+    365: DF_DIR + "/hnl_m365_overlay_full/hnl_mupi_m365_overlay_savepfp.df",
 }
 BNB_FILE = DF_DIR + "/bnb/hnl_mupi_bnb_savepfp.df"
 
