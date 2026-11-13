@@ -198,3 +198,42 @@ def bugfix_mchnl_bfm_flashtime(indf):
     mc_pds_cable_length = 0.135
     indf[('slc', 'barycenterFM', 'flashTime', '', '', '')] = indf[('slc', 'barycenterFM', 'flashTime', '', '', '')] - mc_pds_cable_length
     return indf
+
+# ---------------------------------------------------------------------------
+# dk2nu v01_11_00 SetT(0) bug (BNB GENIE MC only): python equivalent of sbncode #675
+# ---------------------------------------------------------------------------
+
+# #675 adds offset = prod_time*1000 + dk2gen/c per neutrino (prod_time = dk2nu
+# ancestor.back().startt, the meson decay time; dk2gen = decay -> flux window).
+# The two terms anti-correlate: measured on 33 GENIE neutrinos of an official
+# Gen2 v10_14_02_03 BNB reco1 file (Dk2Nu + MCFlux products read directly),
+# offset = 307.49 +- 0.74 ns (min 306.99, max 310.60), i.e. a constant to < 1 ns
+# (~ 92 m / c, target to flux window). So a flat shift reproduces #675.
+DK2NU_OFFSET_NS = 307.5
+
+_DK2NU_US_COLUMNS = [
+    ('slc', 'barycenterFM', 'flashTime', '', '', ''),
+    ('slc', 'barycenterFM', 'flashFirstHit', '', '', ''),
+    ('slc', 'opt0', 'time', '', '', ''),
+    ('slc', 'correctedOpFlash', 'OpFlashT0', '', '', ''),
+    ('slc', 'correctedOpFlash', 'OpFlashT0Corrected', '', '', ''),
+    ('slc', 'truth', 'time', '', '', ''),
+]
+_DK2NU_OFFSET_COL = ('slc', 'truth', 'dk2nu_offset_ns', '', '', '')
+
+
+def bugfix_mcbnb_dk2nu_timing(indf, offset_ns=DK2NU_OFFSET_NS):
+    """Add the dk2nu offset to the truth-matched (GENIE neutrino) slice times, in place.
+
+    Same columns as #675 where present in the frame (all in us). Slices without a
+    matched neutrino (``slc.truth.baseline`` <= 0 or NaN: cosmics) are not shifted,
+    as in #675. Adds ``slc.truth.dk2nu_offset_ns`` (NaN where not applied).
+    """
+    base = indf[('slc', 'truth', 'baseline', '', '', '')].to_numpy(dtype=float)
+    matched = np.isfinite(base) & (base > 0)
+    indf[_DK2NU_OFFSET_COL] = np.where(matched, offset_ns, np.nan)
+    shift_us = np.where(matched, offset_ns, 0.0) / 1000.0
+    for col in _DK2NU_US_COLUMNS:
+        if col in indf.columns:
+            indf[col] = indf[col] + shift_us
+    return indf

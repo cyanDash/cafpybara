@@ -40,7 +40,7 @@ from ...core.preprocess import (
 __all__ = [
     'TRACK_SCORE', 'SLICE_LEVELS', 'PFP_LEVEL', 'PFP_CUTS', 'in_high_yz', 'pfp_col', 'track_like',
     'pfp_features', 'pfp_counts', 'pfp_selection', 'collapse_pfp',
-    'fix_bfm_flashtime_mcbnb', 'fix_bfm_flashtime_mchnl',
+    'fix_bfm_flashtime_mcbnb', 'fix_bfm_flashtime_mchnl', 'fix_dk2nu_timing_mcbnb',
     'preprocess_mcbnb', 'preprocess_mchnl', 'preprocess_mcbnb_pfp', 'preprocess_mchnl_pfp',
     'preprocess_databnb', 'preprocess_dataoff',
 ]
@@ -272,6 +272,19 @@ def fix_bfm_flashtime_mcbnb(df: pd.DataFrame) -> pd.DataFrame:
     return _mark_applied(df, name)
 
 
+def fix_dk2nu_timing_mcbnb(df: pd.DataFrame, offset_ns: float = tc.DK2NU_OFFSET_NS) -> pd.DataFrame:
+    """BNB GENIE dk2nu SetT(0) offset (flat +307.5 ns, equivalent of sbncode #675) on truth-matched slices.
+
+    Interim patch until BNB CAFs are re-made with sbncode #675; do not apply to those. Run before
+    :func:`~cafpybara.core.preprocess.fix_timing_calibration`, which derives from ``flashTime``.
+    """
+    name = 'dk2nu_timing_mcbnb'
+    if _skip_if_applied(df, name):
+        return df
+    df = tc.bugfix_mcbnb_dk2nu_timing(df, offset_ns)
+    return _mark_applied(df, name)
+
+
 def fix_bfm_flashtime_mchnl(df: pd.DataFrame) -> pd.DataFrame:
     """MeVPrtl-generator BCFM flash-time offset (-0.135 us cable), in place."""
     name = 'bfm_flashtime_mchnl'
@@ -281,19 +294,31 @@ def fix_bfm_flashtime_mchnl(df: pd.DataFrame) -> pd.DataFrame:
     return _mark_applied(df, name)
 
 
-def preprocess_mcbnb(df: pd.DataFrame, thresholds: dict | None = None) -> pd.DataFrame:
+def preprocess_mcbnb(df: pd.DataFrame, thresholds: dict | None = None, dk2nu_fix: bool = True) -> pd.DataFrame:
     """Collapse to slices, then BNB-generator flash-time fix and timing calibration.
 
     ``thresholds`` as in :func:`collapse_pfp`; pass it with ``functools.partial``.
+    ``dk2nu_fix=True`` (default on this interim branch) applies :func:`fix_dk2nu_timing_mcbnb` and then
+    the same -0.135 us cable term as HNL (:func:`fix_bfm_flashtime_mchnl`) instead of the
+    old +0.135 us + 2 periods, which was compensating the dk2nu bug (T0 alignment check,
+    2026-11-13: bunch phase 9.06 ns vs data 9.46 ns, old 9.43 ns).
     """
     df = collapse_pfp(preprocess_mc(df), thresholds)
-    df = fix_bfm_flashtime_mcbnb(df)
+    if dk2nu_fix:
+        df = fix_dk2nu_timing_mcbnb(df)
+        df = fix_bfm_flashtime_mchnl(df)
+    else:
+        df = fix_bfm_flashtime_mcbnb(df)
     return fix_timing_calibration(df, period=tc.mcbnb_period_calib, t0_offset=tc.mcbnb_offset_calib)
 
 
-def preprocess_mcbnb_pfp(df: pd.DataFrame) -> pd.DataFrame:
+def preprocess_mcbnb_pfp(df: pd.DataFrame, dk2nu_fix: bool = True) -> pd.DataFrame:
     """As :func:`preprocess_mcbnb` but keeping one row per PFP (no collapse), for threshold tuning."""
-    df = fix_bfm_flashtime_mcbnb(preprocess_mc(df))
+    df = preprocess_mc(df)
+    if dk2nu_fix:
+        df = fix_bfm_flashtime_mchnl(fix_dk2nu_timing_mcbnb(df))
+    else:
+        df = fix_bfm_flashtime_mcbnb(df)
     return fix_timing_calibration(df, period=tc.mcbnb_period_calib, t0_offset=tc.mcbnb_offset_calib)
 
 
