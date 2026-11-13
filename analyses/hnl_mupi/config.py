@@ -15,12 +15,17 @@ HNL_FILES = {
     300: DF_DIR + "/hnl_m300_overlay_full/hnl_mupi_m300_overlay_savepfp.df",
     365: DF_DIR + "/hnl_m365_overlay_full/hnl_mupi_m365_overlay_savepfp.df",
 }
-BNB_FILE = DF_DIR + "/bnb/hnl_mupi_bnb_savepfp.df"
+# 60k files: the 20k snapshot plus 40k more (disjoint), merged with merge_dfs.py; 4.33e19 POT.
+BNB_FILE = DF_DIR + "/bnb/hnl_mupi_bnb60k_savepfp.df"
 
-# Run 3 fixed-dev data (SBND2026A_Gen2, ~5e18 POT unblinded subset), hnl_data_savepfp:
-# on-beam BNB+light and off-beam+light flatcafs. Plain merge (no --fix-subrun).
-DATA_BNB_FILE = DF_DIR + "/data_run3/hnl_mupi_data_bnb_savepfp.df"
-DATA_OFFBEAM_FILE = DF_DIR + "/data_run3/hnl_mupi_data_offbeam_savepfp.df"
+# Data, hnl_data_savepfp, plain merge (no --fix-subrun). Run 1 (Feb-Jul 2025, SBND2026A gen2 respin BNB+light and
+# the MCP2025C Fall25 in-time off-beam+light) is the default: the per-period timing constants in
+# core/timing_calibration.py cover Run 1 only. Run 3 (fixed-dev, ~5e18 POT, Oct 2026) has no calibration yet:
+# preprocess_databnb drops every slice.
+DATA_BNB_FILE = DF_DIR + "/data_run1/hnl_mupi_run1_bnb_savepfp.df"
+DATA_OFFBEAM_FILE = DF_DIR + "/data_run1/hnl_mupi_run1_offbeam_savepfp.df"
+DATA_RUN3_BNB_FILE = DF_DIR + "/data_run3/hnl_mupi_data_bnb_savepfp.df"
+DATA_RUN3_OFFBEAM_FILE = DF_DIR + "/data_run3/hnl_mupi_data_offbeam_savepfp.df"
 # Fraction of off-beam gates that are not cosmic-only (beam-on cosmic fraction correction), as in hnlpi0/nuecc.
 OFFBEAM_F = 0.0725
 

@@ -12,7 +12,7 @@ from ...core.classes import CutSpec
 __all__ = [
     'signal_categories', 'signal_dict', 'background_categories', 'hnl_categories',
     'FLASH_TIME_WINDOW', 'DEFAULT_CUTS', 'TRACK_CUTS', 'ALL_CUTS', 'OPEN_ANGLE_MAX', 'track_cuts', 'in_fv', 'define_signal', 'define_signal_hnl',
-    'HNL_DISPLAY_SCALE', 'hnl_label',
+    'HNL_DISPLAY_SCALE', 'hnl_label', 'CUT_SHORT_LABELS',
 ]
 
 
@@ -121,9 +121,14 @@ DEFAULT_CUTS = [
 OPEN_ANGLE_MAX = 150.0   # [deg]
 
 
-def track_cuts(open_angle_max: float = OPEN_ANGLE_MAX) -> list:
-    """The track cuts, with the MIP-pair opening-angle interval ``(0, open_angle_max)``."""
-    return [
+def track_cuts(open_angle_max: float = OPEN_ANGLE_MAX, containment_last: bool = False) -> list:
+    """The track cuts, with the MIP-pair opening-angle interval ``(0, open_angle_max)``.
+
+    ``containment_last=True`` moves the ``contained`` cut to the end of the sequence: there it
+    is the separator of the contained / uncontained split, not a filter, so every other cut
+    acts on both categories (see ``selection.split_table``).
+    """
+    cuts = [
         CutSpec("trk_quality", accessor=lambda df: df.n_good, min=1.5,
                 label="n good tracks >= 2 (nu daughter, score, len, vtx dist)"),
         CutSpec("mip", accessor=lambda df: df.n_mip, min=1.5,
@@ -139,7 +144,28 @@ def track_cuts(open_angle_max: float = OPEN_ANGLE_MAX) -> list:
         CutSpec("no_michel", accessor=lambda df: df.n_michel, max=0.5,
                 label="no Michel-like PFP"),
     ]
+    if containment_last:
+        cuts = [c for c in cuts if c.name != "contained"] + [c for c in cuts if c.name == "contained"]
+    return cuts
 
 
 TRACK_CUTS = track_cuts()
 ALL_CUTS = DEFAULT_CUTS + TRACK_CUTS
+
+
+# Axis labels of the cut-flow plots: the quantity each stage cuts on, no threshold values
+# (they differ per mass and change with tuning; they belong in the thresholds table).
+CUT_SHORT_LABELS = {
+    "preselection": "Preselection",
+    "bcfm_score": "BCFM score",
+    "flash_time": "Flash time",
+    "crlongtrkdiry": "CR long-track dir. y",
+    "trk_quality": "Good tracks",
+    "mip": "MIP tracks",
+    "no_shower": "Shower veto",
+    "open_angle": "Opening angle",
+    "no_cathode": "Cathode crossing",
+    "no_michel": "Michel veto",
+    "contained": "Contained",
+    "uncontained": "Uncontained",
+}

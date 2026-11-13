@@ -20,7 +20,7 @@ from ...core.utils import get_hist1d
 from .analysis import background_categories, hnl_categories, signal_categories, signal_dict
 
 __all__ = ['annotate_sbnd', 'plot_var', 'plot_mc_hnl', 'plot_mc_hnl_data', 'valid_rows', 'auto_bins',
-           'stack_categories']
+           'stack_categories', 'plot_cut_progression']
 
 # BNB categories plus the off-beam data that completes the cosmic prediction.
 stack_categories = {**background_categories, 'offbeam': signal_categories['offbeam']}
@@ -200,11 +200,13 @@ def plot_mc_hnl_data(mc_df, hnl_df, data_df, var, bins, scale_nu=1.0, scale_hnl=
     w_hnl = hnl_df['weights_mc'].to_numpy(float).ravel() if 'weights_mc' in hnl_df.columns else None
     h = get_hist1d(data=hnl_df[var], bins=bins, weights=w_hnl, overflow=overflow) * scale_hnl
     label = hnl_label + (f" ({h.sum():,.1f})" if kwargs.get('counts') else "")
-    ax.stairs(h, bins, color=hnl_categories["hnl"]["color"], lw=2, label=label, zorder=1e3)
+    # Draw order, bottom to top: prediction stack, HNL line, data.
+    ax.stairs(h, bins, color=hnl_categories["hnl"]["color"], lw=2, label=label, zorder=2e3)
 
     d = get_hist1d(data=data_df[var], bins=bins, overflow=overflow)
     centers, d_err = 0.5 * (np.asarray(bins)[1:] + np.asarray(bins)[:-1]), np.sqrt(d)
-    ax.errorbar(centers, d, yerr=d_err, fmt='o', color='black', ms=4, zorder=1e3 + 1,
+    ax.errorbar(centers, d, yerr=d_err, fmt='o', color='black', ms=5, mec='white', mew=0.6, elinewidth=1.2,
+                zorder=3e3,
                 label=f"Data ({int(d.sum()):,})" if kwargs.get('counts') else "Data")
 
     legend_kwargs = {'ncol': 1, 'loc': 'upper left', 'bbox_to_anchor': (1.01, 1.0), 'frameon': False,
@@ -213,7 +215,7 @@ def plot_mc_hnl_data(mc_df, hnl_df, data_df, var, bins, scale_nu=1.0, scale_hnl=
     n_cat = len(cats)
     data_i = labels.index(next(l for l in labels if l.startswith("Data")))
     order = [data_i] + list(range(n_cat))[::-1] + [i for i in range(n_cat, len(handles)) if i != data_i]
-    ax.legend([handles[i] for i in order], [labels[i] for i in order], **legend_kwargs).set_zorder(1e3 + 2)
+    ax.legend([handles[i] for i in order], [labels[i] for i in order], **legend_kwargs).set_zorder(4e3)
     if log_y:
         ax.set_yscale('log')
 
@@ -236,3 +238,58 @@ def plot_mc_hnl_data(mc_df, hnl_df, data_df, var, bins, scale_nu=1.0, scale_hnl=
     mc_dict['counts'] = mc_tot
     mc_dict['total_err'] = mc_err
     return fig, ax, ax_r, mc_dict, h, d
+
+
+def plot_cut_progression(flow, metric, ylabel, labels=None, log_y=False, note=None, savefig=None, ax=None,
+                         xlabels=None):
+    """One line per signal sample of ``flow[f"{metric} {k}"]`` against the cut stage.
+
+    ``flow`` is the frame of :func:`~cafpybara.analyses.hnl_mupi.selection.eff_purity_flow`;
+    ``labels`` maps a signal key (``"m300"``) to its legend label (default: the key).
+    The x axis is the cumulative cut sequence, its first point the preselection. Rows with
+    ``branch = True`` (contained / uncontained split) are drawn as open diamonds forking from
+    the last cut, on a shaded band.
+    ``xlabels`` overrides the tick labels (default ``flow["cut"]``), e.g. labels without
+    per-mass threshold values when ``flow`` joins several masses.
+    ``note`` (e.g. the POT) is written in the upper-left corner. No title (slide plots).
+    Returns ``(fig, ax)``.
+    """
+    keys = [c[len(metric) + 1:] for c in flow.columns if c.startswith(metric + " ")]
+    labels = labels or {}
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 5))
+    else:
+        fig = ax.figure
+    x = np.arange(len(flow))
+    branch = flow["branch"].to_numpy(bool) if "branch" in flow.columns else np.zeros(len(flow), bool)
+    main = np.flatnonzero(~branch)
+    for i, k in enumerate(keys):
+        y = flow[f"{metric} {k}"].to_numpy(float)
+        col = _PROGRESSION_COLORS[i % len(_PROGRESSION_COLORS)]
+        ax.plot(x[main], y[main], marker="o", ms=5, lw=1.8, color=col, label=labels.get(k, k))
+        for j in np.flatnonzero(branch):        # split branches fork from the last main point
+            ax.plot([x[main[-1]], x[j]], [y[main[-1]], y[j]], ls="--", lw=1.2, color=col)
+            ax.plot(x[j], y[j], marker="D", ms=6, color=col, mfc="white", mew=1.5)
+    if branch.any():
+        ax.axvspan(x[branch].min() - 0.5, x[branch].max() + 0.5, color="0.92", zorder=0)
+    ax.set_xticks(x)
+    ax.set_xticklabels(flow["cut"] if xlabels is None else xlabels, rotation=40, ha="right", rotation_mode="anchor", fontsize=8)
+    ax.set_xlim(-0.5, len(flow) - 0.5)
+    ax.set_ylabel(ylabel)
+    if log_y:
+        ax.set_yscale("log")
+    else:
+        ax.set_ylim(0, None)
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=8, frameon=False)
+    if note:
+        ax.text(0.02, 0.97, note, transform=ax.transAxes, ha="left", va="top", fontsize=9)
+    ax.set_title("")
+    fig.tight_layout()
+    if savefig is not None:
+        fig.savefig(savefig, bbox_inches="tight")
+    return fig, ax
+
+
+# Okabe-Ito, one per HNL mass.
+_PROGRESSION_COLORS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9"]

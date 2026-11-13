@@ -1,0 +1,15 @@
+# Track-cut thresholds for m365, Punzi FOM (a=3) with m365 as reference, 1e20 POT, 2026-11-13.
+# Containment is the last cut (contained / uncontained split), so no scan applies it.
+# Samples: CORSIKA-overlay HNL, BNB 60k with the dk2nu timing fix. Scans: hub_run/thresholds_v3/.
+trk_score = 0.5   # trk_quality: track-like: trackScore >
+min_len = 20   # trk_quality: good track length > [cm]; FOM365 0.00219 (peak 0.00219), B_n=43898
+max_dist_vtx = 80   # trk_quality: good track start-to-vertex distance < [cm]; FOM365 0.00219 (peak 0.00219), B_n=43898
+mip_min_len = 5   # mip: MIP track length > [cm]; FOM365 0.00315 (peak 0.00316), B_n=16363
+mip_chi2mu_max = 60   # mip: MIP track chi2_mu (per point, plane 2) <; FOM365 0.00315 (peak 0.0032), B_n=16363
+mip_chi2p_min = 85   # mip: MIP track chi2_p (per point, plane 2) >; FOM365 0.00315 (peak 0.00317), B_n=16363
+shw_score = 0.5   # no_shower: primary shower: 0 < trackScore <
+shw_min_energy = 1   # no_shower: primary shower energy > [GeV]; FOM365 0.00317 (peak 0.00317), B_n=16173
+open_angle_max = 30   # open_angle: MIP-pair opening angle < [deg]; FOM365 0.00663 (peak 0.00663), B_n=1472
+contain_margin = 2   # contained: track ends at least this far inside the TPC [cm]; not tuned: split boundary (contained / uncontained), fixed
+michel_score = 0.7   # no_michel: Michel-like: 0 < trackScore <; FOM365 0.00785 (peak 0.00785), B_n=199
+michel_max_energy = 0.2   # no_michel: Michel-like visible energy < [GeV]; FOM365 0.00752 (peak 0.00757), B_n=352

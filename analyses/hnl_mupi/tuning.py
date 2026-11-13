@@ -92,14 +92,15 @@ def make_sample(df_pfp: pd.DataFrame, scale: float = 1.0, hnl: bool = False) -> 
     return TuneSample(feat, slc)
 
 
-def _passing(sample: TuneSample, thr: dict, upto: str | None, after: str | None = None):
+def _passing(sample: TuneSample, thr: dict, upto: str | None, after: str | None = None, containment_last: bool = False):
     """Counts frame and mask of slices passing the track cuts up to and including ``upto``.
 
     With ``after`` set, ``upto`` is exclusive and the mask is the cuts before it.
+    ``containment_last=True`` puts the containment cut last (the split separator).
     """
     cnt = pfp_counts(sample.feat, **{k: v for k, v in thr.items() if k in PFP_CUTS}).reindex(sample.slc.index)
     m = np.ones(len(cnt), bool)
-    for spec in track_cuts(thr["open_angle_max"]):
+    for spec in track_cuts(thr["open_angle_max"], containment_last=containment_last):
         if after and spec.name == upto:
             break
         m &= _mask(cnt, spec).to_numpy()
@@ -108,33 +109,38 @@ def _passing(sample: TuneSample, thr: dict, upto: str | None, after: str | None 
     return cnt, m
 
 
-def _yields(sample: TuneSample, thr: dict, upto: str):
-    _, m = _passing(sample, thr, upto)
+def _yields(sample: TuneSample, thr: dict, upto: str, containment_last: bool = False):
+    _, m = _passing(sample, thr, upto, containment_last=containment_last)
     w, sig = sample.slc.w.to_numpy(), sample.slc.sig.to_numpy()
     return w[m].sum(), w[m & sig].sum(), int(m.sum())
 
 
 def tune(bnb: TuneSample, hnl: dict, ref_mass, start: dict | None = None, scans=SCANS,
-         a: float = 3.0, tol: float = 0.02, verbose: bool = True):
+         a: float = 3.0, tol: float = 0.02, verbose: bool = True, containment_last: bool = False):
     """Run the sequential scans; returns ``(thresholds, {param: scan table})``.
 
     ``hnl`` is ``{mass: TuneSample}``, ``ref_mass`` the mass whose FOM sets the
     thresholds, ``a`` the Punzi significance and ``tol`` the plateau tolerance
     (module docstring). Scan tables hold, per value: ``B``, ``B_n`` (BNB
     slices), and per mass ``eff``, ``fom``, plus ``chosen``.
+    ``containment_last=True`` (contained / uncontained split analysis): containment is the
+    last cut, so the other scans see both categories; the ``contained`` scan is skipped and
+    ``contain_margin`` (the split boundary) keeps its start value.
     """
     from .thresholds import read_thresholds
     thr = dict(start or read_thresholds())
     s0 = {m: s.slc.w[s.slc.sig].sum() for m, s in hnl.items()}
     tables = {}
     for sc in scans:
+        if containment_last and sc.stage == "contained":
+            continue
         rows = []
         for v in sc.values:
             t = {**thr, sc.param: v}
-            b, _, bn = _yields(bnb, t, sc.stage)
+            b, _, bn = _yields(bnb, t, sc.stage, containment_last)
             row = {"value": v, "B": b, "B_n": bn}
             for m, s in hnl.items():
-                _, sg, _ = _yields(s, t, sc.stage)
+                _, sg, _ = _yields(s, t, sc.stage, containment_last)
                 row[f"eff {m}"] = sg / s0[m]
                 row[f"fom {m}"] = row[f"eff {m}"] / (a / 2 + np.sqrt(b))
             rows.append(row)
@@ -151,7 +157,7 @@ def tune(bnb: TuneSample, hnl: dict, ref_mass, start: dict | None = None, scans=
     return thr, tables
 
 
-def candidates(sample: TuneSample, thr: dict, sc: Scan, hnl: bool):
+def candidates(sample: TuneSample, thr: dict, sc: Scan, hnl: bool, containment_last: bool = False):
     """Rows of the distribution plot for ``sc``: DataFrame ``x``, ``signal``, ``weights_mc``.
 
     The candidate PFPs of the cut (all neutrino daughters passing the per-PFP
@@ -159,7 +165,7 @@ def candidates(sample: TuneSample, thr: dict, sc: Scan, hnl: bool):
     cuts before it; ``hnl`` keeps only the HNL-matched slices. ``open_angle_max``
     uses one row per slice.
     """
-    cnt, m = _passing(sample, thr, sc.stage, after=sc.stage)
+    cnt, m = _passing(sample, thr, sc.stage, after=sc.stage, containment_last=containment_last)
     slc = sample.slc.assign(ok=m)
     if hnl:
         slc = slc[slc.sig]
@@ -188,7 +194,7 @@ def candidates(sample: TuneSample, thr: dict, sc: Scan, hnl: bool):
 
 
 def plot_param(sc: Scan, table: pd.DataFrame, thr: dict, bnb: TuneSample, hnl: dict, ref_mass,
-               w_bnb: float, savefig: str = ""):
+               w_bnb: float, savefig: str = "", containment_last: bool = False):
     """Distribution of the scanned variable (BNB stack, HNL line) with the Punzi FOM of the scan.
 
     Top: candidate PFPs (see :func:`candidates`), BNB at ``w_bnb`` per slice
@@ -198,8 +204,8 @@ def plot_param(sc: Scan, table: pd.DataFrame, thr: dict, bnb: TuneSample, hnl: d
     from), with the chosen value marked.
     """
     from .plotting import plot_mc_hnl
-    mc = candidates(bnb, thr, sc, hnl=False)
-    hs = candidates(hnl[ref_mass], thr, sc, hnl=True)
+    mc = candidates(bnb, thr, sc, hnl=False, containment_last=containment_last)
+    hs = candidates(hnl[ref_mass], thr, sc, hnl=True, containment_last=containment_last)
     fig, ax, ax_fom, _, _ = plot_mc_hnl(mc, hs, "x", sc.bins, scale_nu=1.0, scale_hnl=1.0,
                                         hnl_label=f"m{ref_mass} HNL", log_y=True, show_fom=True,
                                         fom_nsigma=3.0, xlabel=sc.label, title="")
